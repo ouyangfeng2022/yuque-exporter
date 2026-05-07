@@ -208,7 +208,7 @@ async function handleBatchExport(request) {
             }
 
             let exportResult = null;
-            for (let retry = 0; retry < 10; retry++) {
+            for (let retry = 0; retry < 3; retry++) {
               const exportResponse = await fetch(`https://www.yuque.com/api/docs/${doc.id}/export`, {
                 method: 'POST',
                 headers: {
@@ -260,13 +260,11 @@ async function handleBatchExport(request) {
 
             const downloadUrl = `https://www.yuque.com/${username}/${currentBook.slug}/${doc.slug}/${isLake ? 'lake' : 'markdown'}`;
             const params = new URLSearchParams();
-            if (isLake) {
-              params.set('attachment', '1');
-            } else {
+            params.set('attachment', '1');
+            if (!isLake) {
               if (options.anchor) params.set('anchor', '1');
               if (options.linebreak) params.set('linebreak', '1');
               if (options.latexcode) params.set('latexcode', '1');
-              if (options.attachment) params.set('attachment', '1');
               if (options.useMdai) params.set('useMdai', '1');
             }
 
@@ -277,14 +275,14 @@ async function handleBatchExport(request) {
                 'referer': `https://www.yuque.com/${username}/${currentBook.slug}`,
               },
             });
-
             if (!markdownResponse.ok) {
               throw new Error(`HTTP ${markdownResponse.status}`);
             }
 
-            const markdownData = await markdownResponse.json();
-            const markdownBody = markdownData.data?.body || '';
-
+            let markdownBody = markdownResponse.body;
+            if (markdownBody == null) {
+              throw new Error('Response body is null');
+            }
             const safePath = filePath.replace(/[<>:"|?*]/g, '_');
             const mimeType = isLake ? 'text/plain' : 'text/markdown';
             const dataUrl = `data:${mimeType};charset=utf-8;base64,` + btoa(unescape(encodeURIComponent(markdownBody)));
