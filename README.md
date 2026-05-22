@@ -2,7 +2,8 @@
 
 [![Chrome Extension](https://img.shields.io/badge/Chrome-浏览器扩展-blue.svg)](https://chrome.google.com/webstore)
 
-Chrome 浏览器扩展，批量导出语雀知识库文档。安装后无需配置，直接在语雀页面上操作。
+Chrome 浏览器扩展，批量导出语雀知识库文档。
+安装即用，无需手动获取 Token 或 API 密钥 —— 扩展直接从页面读取认证信息，省去一切配置步骤。
 
 语雀原生只支持单篇手动导出。这个扩展让你可以一键批量导出整个知识库的所有文档。
 
