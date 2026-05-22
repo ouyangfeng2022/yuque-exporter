@@ -1,6 +1,7 @@
 # 语雀知识库批量导出
 
 [![Chrome Extension](https://img.shields.io/badge/Chrome-浏览器扩展-blue.svg)](https://chrome.google.com/webstore)
+[![Edge Add-Ons](https://img.shields.io/badge/Edge-浏览器扩展-blue.svg)](https://microsoftedge.microsoft.com/addons/detail/%E8%AF%AD%E9%9B%80%E7%9F%A5%E8%AF%86%E5%BA%93%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA/dighgpfabpmfglojkecjejbeiifpjccb)
 
 Chrome 浏览器扩展，批量导出语雀知识库文档。
 安装即用，无需手动获取 Token 或 API 密钥 —— 扩展直接从页面读取认证信息，省去一切配置步骤。
@@ -31,7 +32,8 @@ Chrome 浏览器扩展，批量导出语雀知识库文档。
 4. 点击「加载已解压的扩展程序」
 5. 选择项目根目录
 
-> Chrome Web Store 上架中，后续可通过商店直接安装。
+> 已在 [Edge Add‑ons 商店](https://microsoftedge.microsoft.com/addons/detail/%E8%AF%AD%E9%9B%80%E7%9F%A5%E8%AF%86%E5%BA%93%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA/dighgpfabpmfglojkecjejbeiifpjccb)上架：。
+Chrome Web Store：上架中，后续可通过商店直接安装。
 
 ## 使用
 
