@@ -5,7 +5,6 @@
   "description": "一款用于批量导出语雀知识库文档的浏览器扩展，无需任何手动配置。",
   "permissions": [
     "activeTab",
-    "cookies",
     "downloads"
   ],
   "host_permissions": [

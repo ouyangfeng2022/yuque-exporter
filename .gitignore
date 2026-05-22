@@ -21,3 +21,5 @@ build/
 # Temporary files
 tmp/
 temp/
+
+*.zip
