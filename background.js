@@ -140,6 +140,9 @@ async function handleBatchExport(request) {
 
     const ownerMap = await fetchBookOwnerMap(cookieHeader);
 
+    const concurrency = Math.max(1, Number(options.concurrency) || 1);
+    // 每批并发任务之间的间隔（毫秒），给语雀服务器留出喘息时间
+    const batchGapMs = 1000;
     let totalCount = 0;
     let totalSuccess = 0;
 
@@ -174,142 +177,20 @@ async function handleBatchExport(request) {
       }
 
       totalCount += docs.length;
-      let successCount = 0;
 
-      for (let i = 0; i < docs.length; i++) {
-        const doc = docs[i];
-        const tocInfo = docPathMap[doc.id];
+      const ctx = {
+        finished: 0,
+        total: docs.length,
+        bookName: currentBook.name,
+        bookIndex: bi + 1,
+        bookTotal: bookList.length,
+      };
 
-        sendProgress({
-          bookName: currentBook.name,
-          current: i + 1,
-          total: docs.length,
-          bookIndex: bi + 1,
-          bookTotal: bookList.length,
-          filename: doc.title,
-        });
-
-        try {
-          const format = options.format || 'markdown';
-          const isExport = ['pdf', 'word', 'jpg'].includes(format);
-
-          let filePath = sanitizeFilename(currentBook.name);
-          if (tocInfo?.path) {
-            filePath += '/' + tocInfo.path;
-          }
-
-          if (isExport) {
-            const fileExt = `.${format}`;
-            filePath += '/' + sanitizeFilename(doc.title || '未命名') + fileExt;
-
-            const exportPayload = { type: format, force: 0 };
-            if (format === 'pdf' && options.toc) {
-              exportPayload.options = JSON.stringify({ enableToc: 1 });
-            }
-
-            let exportResult = null;
-            for (let retry = 0; retry < 3; retry++) {
-              const exportResponse = await fetch(`https://www.yuque.com/api/docs/${doc.id}/export`, {
-                method: 'POST',
-                headers: {
-                  'content-type': 'application/json',
-                  'cookie': cookieHeader,
-                  'referer': `https://www.yuque.com/${username}/${currentBook.slug}`,
-                },
-                body: JSON.stringify(exportPayload),
-              });
-
-              if (!exportResponse.ok) {
-                throw new Error(`导出请求失败: HTTP ${exportResponse.status}`);
-              }
-
-              const exportData = await exportResponse.json();
-              if (exportData.data?.state === 'success') {
-                exportResult = exportData.data;
-                break;
-              }
-
-              await new Promise(resolve => setTimeout(resolve, 3000));
-            }
-
-            if (!exportResult?.url) {
-              throw new Error('导出超时或失败');
-            }
-
-            let downloadUrl = exportResult.url;
-            if (downloadUrl.startsWith('/')) {
-              downloadUrl = 'https://www.yuque.com' + downloadUrl;
-            }
-
-            const safePath = filePath.replace(/[<>:"|?*]/g, '_');
-            await new Promise((resolve, reject) => {
-              chrome.downloads.download({
-                url: downloadUrl,
-                filename: safePath,
-                saveAs: false,
-              }, (downloadId) => {
-                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-                else resolve(downloadId);
-              });
-            });
-
-          } else {
-            const isLake = format === 'lake';
-            const fileExt = isLake ? '.lake' : '.md';
-            filePath += '/' + sanitizeFilename(doc.title || '未命名') + fileExt;
-
-            const downloadUrl = `https://www.yuque.com/${username}/${currentBook.slug}/${doc.slug}/${isLake ? 'lake' : 'markdown'}`;
-            const params = new URLSearchParams();
-            params.set('attachment', '1');
-            if (!isLake) {
-              if (options.anchor) params.set('anchor', '1');
-              if (options.linebreak) params.set('linebreak', '1');
-              if (options.latexcode) params.set('latexcode', '1');
-              if (options.useMdai) params.set('useMdai', '1');
-            }
-
-            const markdownResponse = await fetch(`${downloadUrl}?${params}`, {
-              headers: {
-                'accept': 'application/json',
-                'cookie': cookieHeader,
-                'referer': `https://www.yuque.com/${username}/${currentBook.slug}`,
-              },
-            });
-            if (!markdownResponse.ok) {
-              throw new Error(`HTTP ${markdownResponse.status}`);
-            }
-
-            let markdownBody = markdownResponse.body;
-            if (markdownBody == null) {
-              throw new Error('Response body is null');
-            }
-            const safePath = filePath.replace(/[<>:"|?*]/g, '_');
-            const mimeType = isLake ? 'text/plain' : 'text/markdown';
-            const dataUrl = `data:${mimeType};charset=utf-8;base64,` + btoa(unescape(encodeURIComponent(markdownBody)));
-
-            await new Promise((resolve, reject) => {
-              chrome.downloads.download({
-                url: dataUrl,
-                filename: safePath,
-                saveAs: false,
-              }, (downloadId) => {
-                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-                else resolve(downloadId);
-              });
-            });
-          }
-
-          successCount++;
-          totalSuccess++;
-        } catch (error) {
-          sendProgress({
-            bookName: currentBook.name,
-            current: i + 1,
-            total: docs.length,
-            filename: `${doc.title} (失败: ${error.message})`,
-          });
-        }
-      }
+      const results = await mapWithConcurrency(docs, concurrency, (doc) => downloadSingleDoc(doc, {
+        currentBook, docPathMap, username, options, cookieHeader, ctx,
+      }), batchGapMs);
+      const successCount = results.filter(Boolean).length;
+      totalSuccess += successCount;
 
       sendProgress({
         bookName: currentBook.name,
@@ -353,17 +234,179 @@ function sendProgress(data) {
   });
 }
 
-function toBinary(string) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(string);
-  let binary = '';
-  for (let i = 0; i < data.length; i++) {
-    binary += String.fromCharCode(data[i]);
+// 分批并发：每批至多 limit 个任务同时运行，批与批之间停顿 gapMs
+// 返回与 items 同序的结果数组。控制批次以减轻服务器压力。
+async function mapWithConcurrency(items, limit, worker, gapMs = 0) {
+  const results = new Array(items.length);
+  limit = Math.max(1, limit);
+  const batchCount = Math.ceil(items.length / limit);
+
+  for (let b = 0; b < batchCount; b++) {
+    const start = b * limit;
+    const end = Math.min(start + limit, items.length);
+
+    await Promise.all(
+      Array.from({ length: end - start }, (_, k) => {
+        const index = start + k;
+        return Promise.resolve(worker(items[index], index))
+          .then((r) => { results[index] = r; })
+          .catch(() => { results[index] = false; });
+      })
+    );
+
+    // 批间间隔（最后一批不需要等待）
+    if (gapMs > 0 && b < batchCount - 1) {
+      await sleep(gapMs);
+    }
   }
-  return binary;
+
+  return results;
+}
+
+// 下载单篇文档。成功返回 true，失败返回 false 并发送失败进度
+async function downloadSingleDoc(doc, ctx) {
+  const { currentBook, docPathMap, username, options, cookieHeader, ctx: progress } = ctx;
+  const tocInfo = docPathMap[doc.id];
+
+  try {
+    const format = options.format || 'markdown';
+    const isExport = ['pdf', 'word', 'jpg'].includes(format);
+
+    let filePath = sanitizeFilename(currentBook.name);
+    if (tocInfo?.path) {
+      filePath += '/' + tocInfo.path;
+    }
+
+    if (isExport) {
+      const fileExt = `.${format}`;
+      filePath += '/' + sanitizeFilename(doc.title || '未命名') + fileExt;
+
+      const exportPayload = { type: format, force: 0 };
+      if (format === 'pdf' && options.toc) {
+        exportPayload.options = JSON.stringify({ enableToc: 1 });
+      }
+
+      let exportResult = null;
+      for (let retry = 0; retry < 3; retry++) {
+        const exportResponse = await fetch(`https://www.yuque.com/api/docs/${doc.id}/export`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'cookie': cookieHeader,
+            'referer': `https://www.yuque.com/${username}/${currentBook.slug}`,
+          },
+          body: JSON.stringify(exportPayload),
+        });
+
+        if (!exportResponse.ok) {
+          throw new Error(`导出请求失败: HTTP ${exportResponse.status}`);
+        }
+
+        const exportData = await exportResponse.json();
+        if (exportData.data?.state === 'success') {
+          exportResult = exportData.data;
+          break;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+
+      if (!exportResult?.url) {
+        throw new Error('导出超时或失败');
+      }
+
+      let downloadUrl = exportResult.url;
+      if (downloadUrl.startsWith('/')) {
+        downloadUrl = 'https://www.yuque.com' + downloadUrl;
+      }
+
+      const safePath = filePath.replace(/[<>:"|?*]/g, '_');
+      await new Promise((resolve, reject) => {
+        chrome.downloads.download({
+          url: downloadUrl,
+          filename: safePath,
+          saveAs: false,
+        }, (downloadId) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(downloadId);
+        });
+      });
+
+    } else {
+      const isLake = format === 'lake';
+      const fileExt = isLake ? '.lake' : '.md';
+      filePath += '/' + sanitizeFilename(doc.title || '未命名') + fileExt;
+
+      const downloadUrl = `https://www.yuque.com/${username}/${currentBook.slug}/${doc.slug}/${isLake ? 'lake' : 'markdown'}`;
+      const params = new URLSearchParams();
+      params.set('attachment', '1');
+      if (!isLake) {
+        if (options.anchor) params.set('anchor', '1');
+        if (options.linebreak) params.set('linebreak', '1');
+        if (options.latexcode) params.set('latexcode', '1');
+        if (options.useMdai) params.set('useMdai', '1');
+      }
+
+      const markdownResponse = await fetch(`${downloadUrl}?${params}`, {
+        headers: {
+          'accept': 'application/json',
+          'cookie': cookieHeader,
+          'referer': `https://www.yuque.com/${username}/${currentBook.slug}`,
+        },
+      });
+      if (!markdownResponse.ok) {
+        throw new Error(`HTTP ${markdownResponse.status}`);
+      }
+
+      let markdownBody = markdownResponse.body;
+      if (markdownBody == null) {
+        throw new Error('Response body is null');
+      }
+      const safePath = filePath.replace(/[<>:"|?*]/g, '_');
+      const mimeType = isLake ? 'text/plain' : 'text/markdown';
+      const dataUrl = `data:${mimeType};charset=utf-8;base64,` + btoa(unescape(encodeURIComponent(markdownBody)));
+
+      await new Promise((resolve, reject) => {
+        chrome.downloads.download({
+          url: dataUrl,
+          filename: safePath,
+          saveAs: false,
+        }, (downloadId) => {
+          if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+          else resolve(downloadId);
+        });
+      });
+    }
+
+    progress.finished++;
+    sendProgress({
+      bookName: progress.bookName,
+      current: progress.finished,
+      total: progress.total,
+      bookIndex: progress.bookIndex,
+      bookTotal: progress.bookTotal,
+      filename: doc.title,
+    });
+    return true;
+  } catch (error) {
+    progress.finished++;
+    sendProgress({
+      bookName: progress.bookName,
+      current: progress.finished,
+      total: progress.total,
+      bookIndex: progress.bookIndex,
+      bookTotal: progress.bookTotal,
+      filename: `${doc.title} (失败: ${error.message})`,
+    });
+    return false;
+  }
 }
 
 function sanitizeFilename(name) {
   return name.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 

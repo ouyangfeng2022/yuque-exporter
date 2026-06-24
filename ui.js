@@ -241,6 +241,31 @@
       accent-color: #111827;
     }
 
+    #yuque-export-panel .ye-rate-limit {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    #yuque-export-panel .ye-rate-limit select {
+      flex: 1;
+      padding: 4px 6px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-size: 12px;
+      color: #374151;
+      background: #fff;
+      cursor: pointer;
+      font-family: inherit;
+    }
+
+    #yuque-export-panel .ye-rate-limit select:focus {
+      outline: none;
+      border-color: #111827;
+    }
+
     #yuque-export-panel .ye-progress {
       margin-top: 12px;
       display: none;
@@ -396,6 +421,18 @@
           <label class="ye-option" title="导出带PlantUML等额外卡片内容">
             <input type="checkbox" id="ye-opt-usemdai" checked> MDAI
           </label>
+        </div>
+      </div>
+
+      <div class="ye-section">
+        <label class="ye-label">下载并发数</label>
+        <div class="ye-rate-limit" title="每批同时下载的文档数量。数值越大越快，但请控制以减轻语雀服务器压力；每批之间会自动停顿">
+          <select id="ye-rate-limit">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="4">4</option>
+            <option value="8">8</option>
+          </select>
         </div>
       </div>
 
@@ -638,6 +675,7 @@
       linebreak: format === 'lake' ? false : document.getElementById('ye-opt-linebreak').checked,
       useMdai: format === 'lake' ? false : document.getElementById('ye-opt-usemdai').checked,
       toc: format === 'pdf' ? document.getElementById('ye-opt-toc').checked : false,
+      concurrency: parseInt(document.getElementById('ye-rate-limit').value, 10) || 1,
     };
 
     exportBtn.disabled = true;
