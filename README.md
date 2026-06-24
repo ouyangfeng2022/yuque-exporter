@@ -1,5 +1,6 @@
 # 语雀知识库批量导出
 
+[![Version](https://img.shields.io/badge/version-2.1.0-brightgreen.svg)](#版本号)
 [![Chrome Extension](https://img.shields.io/badge/Chrome-浏览器扩展-blue.svg)](https://chrome.google.com/webstore)
 [![Edge Add-Ons](https://img.shields.io/badge/Edge-浏览器扩展-blue.svg)](https://microsoftedge.microsoft.com/addons/detail/%E8%AF%AD%E9%9B%80%E7%9F%A5%E8%AF%86%E5%BA%93%E6%89%B9%E9%87%8F%E5%AF%BC%E5%87%BA/dighgpfabpmfglojkecjejbeiifpjccb)
 
@@ -156,6 +157,16 @@ Chrome Web Store：上架中，后续可通过商店直接安装。
 
 Lake 是语雀原生格式，如果你需要标准 Markdown，在格式中选择 "Markdown" 即可。
 </details>
+
+## 版本号
+
+项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)（`MAJOR.MINOR.PATCH`）：
+
+- **MAJOR**：不兼容的 API / 行为变更
+- **MINOR**：向后兼容的新功能（本次 `2.1.0` 即新增分批并发下载）
+- **PATCH**：向后兼容的缺陷修复
+
+版本的唯一权威来源是 [`manifest.json`](./manifest.json) 中的 `"version"` 字段，README 顶部的版本徽章与之保持同步。每次发版时同步更新这两处即可。
 
 ## 免责声明
 
